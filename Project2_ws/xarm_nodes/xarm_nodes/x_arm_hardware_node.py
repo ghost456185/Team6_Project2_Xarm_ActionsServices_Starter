@@ -16,6 +16,29 @@ try:
 except ImportError:
     xarm = None
 
+# ========== ROBOT POSITIONS ==========
+gripper_closed_count = 709
+gripper_open_count   = 145
+
+POSITIONS = {
+    0: [145, 500, 500, 500, 505, 500], # Home Position
+    1: [145, 646, 46, 646, 342, 632],
+    2: [145, 545, 114, 818, 464, 510],
+    3: [145, 396, 157, 826, 455, 342],
+    4: [145, 605, 211, 784, 417, 592],
+    5: [145, 497, 197, 792, 425, 473],
+    6: [145, 423, 206, 784, 417, 381],
+    7: [145, 567, 296, 763, 380, 573],
+    8: [145, 524, 267, 764, 384, 487],
+    9: [145, 437, 274, 737, 363, 400],
+}
+
+#  pos: [J1, J2, J3, J4, J5, J6]
+#  pos: [Gripper, Wrist1, Wrist2, Elbow, Shoulder, Base]
+
+POSITION_DROP = [709, 492, 849, 121, 484, 485]
+# ========== END ROBOT POSITIONS ==========
+
 
 class XArmHardwareNode(Node):
     def __init__(self):
@@ -51,29 +74,88 @@ class XArmHardwareNode(Node):
         except Exception as exc:
             self.get_logger().error(f'Failed to connect to xArm over USB: {exc}')
 
-    # TODO(STUDENTS): Add your service callback methods here.
-    # Suggestions:
-    # 1) Validate inputs before sending commands (e.g. are joint angles within limits?).
-    # 2) Return clear success/failure info to the caller via the response object.
-    #
-    # Example:
-    # def service_callback(self, request, response):
-    #     # ... perform arm action ...
-    #     response.success = True
-    #     return response
+    # Implemented Service callbacks for each hardware interaction. 
 
     def start_search_callback(self, request, response):
-    # ... perform start search action ...
-        response.success = True
-        response.status_message = "Search started"
+        """Start search - move arm to home position and open gripper."""
+        if self.arm is None:
+            response.is_active = False
+            response.status_message = "Arm not connected"
+            return response
+        
+        try:
+            # Move to home position
+            self.arm.setPosition(POSITIONS[0], wait=True)
+            response.is_active = True
+            response.status_message = "Search started - moved to home position"
+            self.get_logger().info('Search started, moved to home position')
+        except Exception as exc:
+            response.is_active = False
+            response.status_message = f"Failed to start search: {exc}"
+            self.get_logger().error(f'Start search failed: {exc}')
+        
         return response
 
     def move_to_goal_callback(self, request, response):
-        # ... perform move to goal action ...
-        response.success = True
-        response.status_message = "Move to goal completed!"
-        return response
-
+        """Move to drop position to release object."""
+        if self.arm is None:
+            response.object_detected = False
+            response.status_message = "Arm not connected"
+            return response
+        
+        """Move arm to a specific square on the grid."""
+        if self.arm is None:
+            response.finished_moving = False
+            response.status_message = "Arm not connected"
+            return response
+        
+        square_num = request.square_number
+        
+        # Validate square number
+        if square_num not in POSITIONS:
+            response.finished_moving = False
+            response.status_message = f"Invalid square number: {square_num}. Must be 0-9."
+            self.get_logger().warning(f'Invalid square number: {square_num}')
+            return response
+        
+        try:
+            # Move to the square position
+            position = POSITIONS[square_num]
+            self.arm.setPosition(position, wait=True)
+            
+            response.finished_moving = True
+            response.status_message = f"Moved to square {square_num}"
+            self.get_logger().info(f'Moved to square {square_num}')
+        except Exception as exc:
+            response.finished_moving = False
+            response.status_message = f"Failed to move to square {square_num}: {exc}"
+        """Close gripper and detect if object was grasped."""
+        if self.arm is None:
+            response.object_detected = False
+            response.message = "Arm not connected"
+            return response
+        
+        """Cancel operation - turn off all servos."""
+        if self.arm is None:
+            response.is_cancelled = False
+            response.status_message = "Arm not connected"
+            return response
+        
+        try:
+            if request.cancel:
+                # Disable all servos
+                self.arm.servoOff()
+                response.is_cancelled = True
+                response.status_message = "All servos turned off"
+                self.get_logger().info('Servos turned off - operation cancelled')
+            else:
+                response.is_cancelled = False
+                response.status_message = "Cancel not requested"
+        except Exception as exc:
+            response.is_cancelled = False
+            response.status_message = f"Failed to cancel: {exc}"
+            self.get_logger().error(f'Cancel failed: {exc}')
+    
     def move_to_square_callback(self, request, response):
         # ... perform move to square action ...
         response.success = True
@@ -81,15 +163,59 @@ class XArmHardwareNode(Node):
         return response
 
     def object_detect_callback(self, request, response):
-        # ... perform object detection action ...
-        response.success = True
-        response.status_message = "Object detected"
+        """Detect object by attempting to close gripper."""
+        gripper_closed_count = 200  # Define this constant
+        gripper_open_count = 850    # Define this constant
+        
+        try:
+            current_pos = self.arm.getPosition()
+            
+            # Close gripper
+            closed_pos = [gripper_closed_count] + current_pos[1:]
+            self.arm.setPosition(closed_pos, wait=True)
+            
+            import time
+            time.sleep(0.5)
+            
+            final_pos = self.arm.getPosition()
+            gripper_position = final_pos[0]
+            
+            # Allow some tolerance (e.g., within 50 counts of target)
+            if abs(gripper_position - gripper_closed_count) > 50:
+                response.object_detected = True
+                response.message = f"Object detected (gripper at {gripper_position})"
+                self.get_logger().info(f'Object detected at gripper position {gripper_position}')
+            else:
+                response.object_detected = False
+                response.message = "No object detected (gripper fully closed)"
+                # Reopen gripper if no object
+                open_pos = [gripper_open_count] + current_pos[1:]
+                self.arm.setPosition(open_pos, wait=True)
+                self.get_logger().info('No object detected, gripper reopened')
+                
+        except Exception as exc:
+            response.object_detected = False
+            response.message = f"Object detection failed: {exc}"
+            self.get_logger().error(f'Object detection failed: {exc}')
+        
         return response
 
     def cancel_callback(self, request, response):
-        # ... perform cancel action ...
-        response.success = True
-        response.status_message = "Search cancelled"
+        """Cancel operation by disabling servos."""
+        try:
+            if request.cancel:
+                self.arm.servoOff()
+                response.is_cancelled = True
+                response.status_message = "All servos turned off"
+                self.get_logger().info('Servos turned off - operation cancelled')
+            else:
+                response.is_cancelled = False
+                response.status_message = "Cancel not requested"
+        except Exception as exc:
+            response.is_cancelled = False
+            response.status_message = f"Failed to cancel: {exc}"
+            self.get_logger().error(f'Cancel failed: {exc}')
+    
         return response
 
 def main(args=None):

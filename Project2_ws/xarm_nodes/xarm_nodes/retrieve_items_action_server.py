@@ -30,9 +30,16 @@ class RetrieveItemsActionServer(Node):
     def __init__(self):
         super().__init__('retrieve_items_action_server')
 
-        # TODO(STUDENTS): Create service clients here for any hardware services you need.
-        # Example:
-        # self._your_client = self.create_client(YourServiceType, 'service_name')
+        # State tracking for cancel callback
+        self._search_active = False
+        self._cancel_pending = False
+
+        # Create service clients for hardware services
+        self._start_search_client = self.create_client(StartSearch, 'start_search')
+        self._move_to_square_client = self.create_client(MoveToSquare, 'move_to_square')
+        self._object_detect_client = self.create_client(ObjectDetect, 'object_detect')
+        self._move_to_goal_client = self.create_client(MoveToGoal, 'move_to_goal')
+        self._cancel_client = self.create_client(Cancel, 'cancel')
 
         self._action_server = ActionServer(
             self,
@@ -46,20 +53,33 @@ class RetrieveItemsActionServer(Node):
         self.get_logger().info('retrieve_items_action_server is running.')
 
     def goal_callback(self, goal_request):
-        """Accept or reject an incoming goal request.
-
-        TODO(STUDENTS): Add any validation logic here (e.g. reject if num_items is out of range).
-        Return GoalResponse.REJECT to refuse a goal before execution begins.
-        """
-        self.get_logger().info(f'Received goal: num_items={goal_request.num_items}')
+        """Accept or reject an incoming goal request."""
+        
+        # Validate num_items is within acceptable range
+        min_items = 1
+        max_items = 9  # Adjust based on your grid size
+        
+        if goal_request.num_items < min_items or goal_request.num_items > max_items:
+            self.get_logger().warning(
+                f'Goal rejected: num_items={goal_request.num_items} is out of range '
+                f'[{min_items}, {max_items}]'
+            )
+            return GoalResponse.REJECT
+        
+        self.get_logger().info(f'Goal accepted: num_items={goal_request.num_items}')
         return GoalResponse.ACCEPT
 
     def cancel_callback(self, goal_handle):
-        """Accept or reject a cancel request for an active goal.
+        """Accept or reject a cancel request for an active goal."""
 
-        TODO(STUDENTS): Return CancelResponse.REJECT if cancellation should be refused.
-        """
-        self.get_logger().info('Received cancel request.')
+        # will: Return CancelResponse.REJECT if cancellation should be refused.
+
+        if not self._search_active:
+            self.get_logger().info('Cancel rejected: search is not active.')
+            return CancelResponse.REJECT
+       
+        self.get_logger().info('Cancel requested: accepted (deferred until motion completes).')
+        self._cancel_pending = True
         return CancelResponse.ACCEPT
 
     async def execute_callback(self, goal_handle):
@@ -76,34 +96,103 @@ class RetrieveItemsActionServer(Node):
         feedback_msg = RetrieveItems.Feedback()
         result = RetrieveItems.Result()
 
-        # TODO(STUDENTS): Implement your item retrieval loop.
-        # A typical loop might:
-        #   1. Determine the next grid box to visit.
-        #   2. Call a hardware service to move the arm.
-        #   3. Call a hardware service to operate the gripper.
-        #   4. Publish feedback after each step.
-        #   5. Check for cancellation and abort cleanly if requested.
-        #
-        # --- Calling a service with await ---
-        # request = YourServiceType.Request()
-        # request.box_index = current_box
-        # response = await self._your_client.call_async(request)
-        # if not response.success:
-        #     self.get_logger().error(f'Service call failed: {response.message}')
-        #
-        # --- Publishing feedback ---
-        # feedback_msg.state = 'searching'
-        # feedback_msg.current_box = current_box
-        # feedback_msg.items_collected = items_so_far
-        # goal_handle.publish_feedback(feedback_msg)
-        #
-        # --- Checking for cancellation ---
-        # if goal_handle.is_cancel_requested:
-        #     goal_handle.canceled()
-        #     result.success = False
-        #     result.message = 'Goal cancelled.'
-        #     return result
+        # Initialize tracking variables
+        items_collected = 0
+        target_items = goal_handle.request.num_items
+        
+        # Start search
+        start_req = StartSearch.Request()
+        start_req.activate = True
+        start_resp = await self._start_search_client.call_async(start_req)
+        
+        if start_resp.is_active:
+            self._search_active = True
+        else:
+            result.success = False
+            result.message = 'Failed to start search'
+            result.items_collected = 0
+            goal_handle.abort()
+            return result
 
+        # Item retrieval loop - iterate through grid boxes (1-9 for 3x3 grid)
+        for current_box in range(1, 10):  # Grid boxes 1-9 (0 is home position)
+            # Check if we've collected enough items
+            if items_collected >= target_items:
+                break
+
+            # Update feedback - moving to box
+            feedback_msg.state = 'moving'
+            feedback_msg.current_box = current_box
+            feedback_msg.items_collected = items_collected
+            goal_handle.publish_feedback(feedback_msg)
+
+            # Move to square
+            move_req = MoveToSquare.Request()
+            move_req.square_number = current_box
+            move_resp = await self._move_to_square_client.call_async(move_req)
+            
+            if not move_resp.finished_moving:
+                self.get_logger().warning(f'Failed to move to square {current_box}: {move_resp.status_message}')
+                continue
+
+            # Check for cancel after motion completes
+            if self._cancel_pending:
+                self._cancel_pending = False
+                self._search_active = False
+
+                cancel_req = Cancel.Request()
+                cancel_req.cancel = True
+                await self._cancel_client.call_async(cancel_req)
+
+                goal_handle.canceled()
+                result.success = False
+                result.message = 'Canceled after current motion; servos turned off.'
+                result.items_collected = items_collected
+                return result
+
+            # Update feedback - detecting object
+            feedback_msg.state = 'grasping'
+            feedback_msg.current_box = current_box
+            feedback_msg.items_collected = items_collected
+            goal_handle.publish_feedback(feedback_msg)
+
+            # Close gripper and detect object
+            detect_req = ObjectDetect.Request()
+            detect_req.close_gripper = True
+            detect_resp = await self._object_detect_client.call_async(detect_req)
+
+            if detect_resp.object_detected:
+                # Object found! Move to goal location
+                feedback_msg.state = 'dropping'
+                goal_handle.publish_feedback(feedback_msg)
+
+                goal_req = MoveToGoal.Request()
+                goal_req.move_to_goal = True
+                goal_resp = await self._move_to_goal_client.call_async(goal_req)
+
+                if goal_resp.object_detected:
+                    items_collected += 1
+                    self.get_logger().info(f'Item {items_collected} collected from box {current_box}')
+                else:
+                    self.get_logger().warning(f'Failed to drop object: {goal_resp.status_message}')
+
+            # Check for cancel request
+            if goal_handle.is_cancel_requested and not self._cancel_pending:
+                self._cancel_pending = True
+
+        # Search complete
+        self._search_active = False
+        
+        # Return to home or safe position
+        feedback_msg.state = 'complete'
+        feedback_msg.current_box = -1
+        feedback_msg.items_collected = items_collected
+        goal_handle.publish_feedback(feedback_msg)
+
+        result.items_collected = items_collected
+        result.success = (items_collected >= target_items)
+        result.message = f'Collected {items_collected}/{target_items} items'
+        
         goal_handle.succeed()
         return result
 
