@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
 
+from urllib import response
+
 import rclpy
 from rclpy.node import Node
 # from xarm_pickup_interfaces.srv import YourServiceType  # TODO(STUDENTS): Import your service types here.
+from xarm_pickup_interfaces.srv import StartSearch 
+from xarm_pickup_interfaces.srv import MoveToGoal
+from xarm_pickup_interfaces.srv import MoveToSquare
+from xarm_pickup_interfaces.srv import ObjectDetect
+from xarm_pickup_interfaces.srv import Cancel
 
 try:
     import xarm
@@ -20,6 +27,16 @@ class XArmHardwareNode(Node):
         # TODO(STUDENTS): Add your service servers here. Make sure that all services are defined in the xarm_pickup_interfaces package and that you import them at the top of this file.
         # Example:
         # self.create_service(YourServiceType, 'service_name', self.service_callback)
+
+        self.create_service(StartSearch, 'start_search', self.start_search_callback)
+
+        self.create_service(MoveToGoal, 'move_to_goal', self.move_to_goal_callback)
+
+        self.create_service(MoveToSquare, 'move_to_square', self.move_to_square_callback)
+
+        self.create_service(ObjectDetect, 'object_detect', self.object_detect_callback)
+
+        self.create_service(Cancel, 'cancel', self.cancel_callback)
 
         self.get_logger().info('x_arm_hardware_node is running.')
 
@@ -45,6 +62,35 @@ class XArmHardwareNode(Node):
     #     response.success = True
     #     return response
 
+    def start_search_callback(self, request, response):
+    # ... perform start search action ...
+        response.success = True
+        response.status_message = "Search started"
+        return response
+
+    def move_to_goal_callback(self, request, response):
+        # ... perform move to goal action ...
+        response.success = True
+        response.status_message = "Move to goal completed!"
+        return response
+
+    def move_to_square_callback(self, request, response):
+        # ... perform move to square action ...
+        response.success = True
+        response.status_message = "Moved to square"
+        return response
+
+    def object_detect_callback(self, request, response):
+        # ... perform object detection action ...
+        response.success = True
+        response.status_message = "Object detected"
+        return response
+
+    def cancel_callback(self, request, response):
+        # ... perform cancel action ...
+        response.success = True
+        response.status_message = "Search cancelled"
+        return response
 
 def main(args=None):
     rclpy.init(args=args)

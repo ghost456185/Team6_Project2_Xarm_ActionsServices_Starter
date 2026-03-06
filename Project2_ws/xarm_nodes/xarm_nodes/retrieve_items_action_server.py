@@ -16,7 +16,12 @@ from rclpy.action import CancelResponse, GoalResponse
 from rclpy.executors import MultiThreadedExecutor
 
 from xarm_pickup_interfaces.action import RetrieveItems
-# from xarm_pickup_interfaces.srv import YourServiceType  # TODO(STUDENTS): Import your service types here.
+# Imported service types for hardware interaction here.
+from xarm_pickup_interfaces.srv import StartSearch  
+from xarm_pickup_interfaces.srv import MoveToSquare
+from xarm_pickup_interfaces.srv import ObjectDetect
+from xarm_pickup_interfaces.srv import MoveToGoal
+from xarm_pickup_interfaces.srv import Cancel
 
 
 class RetrieveItemsActionServer(Node):
