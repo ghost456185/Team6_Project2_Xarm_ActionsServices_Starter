@@ -161,7 +161,7 @@ class RetrieveItemsActionServer(Node):
             detect_req.close_gripper = True
             detect_resp = await self._object_detect_client.call_async(detect_req)
 
-            if detect_resp.object_detected:
+            if detect_resp.finished_moving:
                 # Object found! Move to goal location
                 feedback_msg.state = 'dropping'
                 goal_handle.publish_feedback(feedback_msg)

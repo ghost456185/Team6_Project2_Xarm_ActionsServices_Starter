@@ -36,6 +36,13 @@ POSITIONS = {
 POSITION_DROP = [709, 492, 849, 121, 484, 485]
 # ========== END ROBOT POSITIONS ==========
 
+SERVO_IDS = [1, 2, 3, 4, 5, 6]
+
+
+def _as_servo_targets(position_counts):
+    """Convert [J1..J6] counts into xarm [[id, pos], ...] format."""
+    return [[servo_id, int(count)] for servo_id, count in zip(SERVO_IDS, position_counts)]
+
 
 class XArmHardwareNode(Node):
     def __init__(self):
@@ -82,14 +89,14 @@ class XArmHardwareNode(Node):
         
         try:
             # Move to home position
-            self.arm.setPosition(POSITIONS[0])
+            self.arm.setPosition(_as_servo_targets(POSITIONS[0]), wait=True)
             response.is_active = True
             response.status_message = "Search started - moved to home position"
             self.get_logger().info('Search started, moved to home position')
         except Exception as exc:
             response.is_active = False
             response.status_message = f"Failed to start search: {exc}"
-            self.get_logger().error(f'Start search failed: {exc}')
+            self.get_logger().error(f'Start search failed: {exc}') # current Error (object of type 'int' has no len())
         
         return response
 
@@ -102,13 +109,13 @@ class XArmHardwareNode(Node):
         
         try:
             # Move to drop position
-            self.arm.setPosition(POSITION_DROP)
+            self.arm.setPosition(_as_servo_targets(POSITION_DROP), wait=True)
             
             # Open gripper to release object
             import time
             time.sleep(0.5)  # Wait for position to stabilize
             drop_open = [gripper_open_count] + POSITION_DROP[1:]
-            self.arm.setPosition(drop_open)
+            self.arm.setPosition(_as_servo_targets(drop_open), wait=True)
             
             response.object_detected = True
             response.status_message = "Moved to goal and released object"
@@ -139,7 +146,7 @@ class XArmHardwareNode(Node):
         try:
             # Move to the square position
             position = POSITIONS[square_num]
-            self.arm.setPosition(position)
+            self.arm.setPosition(_as_servo_targets(position), wait=True)
             
             response.finished_moving = True
             response.status_message = f"Moved to square {square_num}"
@@ -154,46 +161,40 @@ class XArmHardwareNode(Node):
     def object_detect_callback(self, request, response):
         """Close gripper and detect if object was grasped."""
         if self.arm is None:
-            response.object_detected = False
-            response.message = "Arm not connected"
+            response.finished_moving = False
+            response.status_message = "Arm not connected"
             return response
         
         try:
             if request.close_gripper:
-                # Get current position
-                current_pos = self.arm.getPosition()
-                
-                # Close gripper (update only gripper servo)
-                closed_pos = [gripper_closed_count] + current_pos[1:]
-                self.arm.setPosition(closed_pos)
+                # Close gripper servo only (servo ID 1)
+                self.arm.setPosition(1, gripper_closed_count, wait=True)
                 
                 import time
                 time.sleep(0.5)  # Allow gripper to close
                 
                 # Check if gripper closed completely or stopped on object
-                final_pos = self.arm.getPosition()
-                gripper_position = final_pos[0]
+                gripper_position = self.arm.getPosition(1)
                 
                 # If gripper didn't fully close, an object is present
                 # Allow some tolerance (e.g., within 50 counts of target)
                 if abs(gripper_position - gripper_closed_count) > 50:
-                    response.object_detected = True
-                    response.message = f"Object detected (gripper at {gripper_position})"
+                    response.finished_moving = True
+                    response.status_message = f"Object detected (gripper at {gripper_position})"
                     self.get_logger().info(f'Object detected at gripper position {gripper_position}')
                 else:
-                    response.object_detected = False
-                    response.message = "No object detected (gripper fully closed)"
+                    response.finished_moving = False
+                    response.status_message = "No object detected (gripper fully closed)"
                     # Open gripper again if no object
-                    open_pos = [gripper_open_count] + current_pos[1:]
-                    self.arm.setPosition(open_pos)
+                    self.arm.setPosition(1, gripper_open_count, wait=True)
                     self.get_logger().info('No object detected, gripper reopened')
             else:
-                response.object_detected = False
-                response.message = "Gripper not commanded to close"
+                response.finished_moving = False
+                response.status_message = "Gripper not commanded to close"
                 
         except Exception as exc:
-            response.object_detected = False
-            response.message = f"Object detection failed: {exc}"
+            response.finished_moving = False
+            response.status_message = f"Object detection failed: {exc}"
             self.get_logger().error(f'Object detection failed: {exc}')
         
         return response
