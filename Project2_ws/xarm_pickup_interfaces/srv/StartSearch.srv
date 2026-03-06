@@ -1,0 +1,7 @@
+# Activate the search
+bool activate
+
+---
+# Response indicating the status of the search activation
+bool is_active
+string status_message

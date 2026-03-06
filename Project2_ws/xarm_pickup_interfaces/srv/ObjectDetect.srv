@@ -1,0 +1,7 @@
+# Tells the xArm to close the gripper
+bool close_gripper
+
+---
+# Response indicating the status of the move operation
+bool finished_moving
+string status_message

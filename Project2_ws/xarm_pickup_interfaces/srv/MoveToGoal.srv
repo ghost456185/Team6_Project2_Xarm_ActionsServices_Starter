@@ -1,0 +1,6 @@
+# Tells the xArm to move to the goal position
+bool move_to_goal
+---
+# Response indicating the status of object detection
+bool object_detected
+string status_message

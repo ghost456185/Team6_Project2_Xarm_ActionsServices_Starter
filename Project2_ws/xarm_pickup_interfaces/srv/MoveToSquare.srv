@@ -1,0 +1,7 @@
+# Sends the xArm to a specific square on the table
+int32 square_number
+
+---
+# Response indicating the status of the move operation
+bool finished_moving
+string status_message

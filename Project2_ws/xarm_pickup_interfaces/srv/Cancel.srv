@@ -1,0 +1,7 @@
+# Activate the cancellation of the search
+bool cancel
+
+---
+# Response indicating the status of the search cancellation
+bool is_cancelled
+string status_message
