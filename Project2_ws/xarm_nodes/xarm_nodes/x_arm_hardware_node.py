@@ -144,7 +144,11 @@ class XArmHardwareNode(Node):
             return response
         
         try:
-            # Move to the square position
+            # Always route through home before checking a non-home square.
+            if square_num != 0:
+                self.arm.setPosition(_as_servo_targets(POSITIONS[0]), wait=True)
+
+            # Move to the requested square position
             position = POSITIONS[square_num]
             self.arm.setPosition(_as_servo_targets(position), wait=True)
             
@@ -205,10 +209,10 @@ class XArmHardwareNode(Node):
             response.is_cancelled = False
             response.status_message = "Arm not connected"
             return response
-        
+
         try:
             if request.cancel:
-                self.arm.servoOff()
+                self.arm.servoOff()   # disables all servos (1–6)
                 response.is_cancelled = True
                 response.status_message = "All servos turned off"
                 self.get_logger().info('Servos turned off - operation cancelled')
@@ -219,7 +223,7 @@ class XArmHardwareNode(Node):
             response.is_cancelled = False
             response.status_message = f"Failed to cancel: {exc}"
             self.get_logger().error(f'Cancel failed: {exc}')
-    
+
         return response
 
 def main(args=None):
