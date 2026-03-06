@@ -10,6 +10,11 @@ find_package(rosidl_default_generators REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "action/RetrieveItems.action"
+  "srv/StartSearch.srv"
+  "srv/MoveToSquare.srv"
+  "srv/ObjectDetect.srv"
+  "srv/MoveToGoal.srv"
+  "srv/Cancel.srv"
 )
 
 ament_export_dependencies(rosidl_default_runtime)

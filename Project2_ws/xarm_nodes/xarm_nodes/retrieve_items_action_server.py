@@ -185,7 +185,7 @@ class RetrieveItemsActionServer(Node):
         
         # Return to home or safe position
         feedback_msg.state = 'complete'
-        feedback_msg.current_box = -1
+        feedback_msg.current_box = 0  # Home position
         feedback_msg.items_collected = items_collected
         goal_handle.publish_feedback(feedback_msg)
 
