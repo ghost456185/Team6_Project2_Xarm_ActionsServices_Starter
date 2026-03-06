@@ -82,7 +82,7 @@ class XArmHardwareNode(Node):
         
         try:
             # Move to home position
-            self.arm.setPosition(POSITIONS[0], wait=True)
+            self.arm.setPosition(POSITIONS[0])
             response.is_active = True
             response.status_message = "Search started - moved to home position"
             self.get_logger().info('Search started, moved to home position')
@@ -100,6 +100,27 @@ class XArmHardwareNode(Node):
             response.status_message = "Arm not connected"
             return response
         
+        try:
+            # Move to drop position
+            self.arm.setPosition(POSITION_DROP)
+            
+            # Open gripper to release object
+            import time
+            time.sleep(0.5)  # Wait for position to stabilize
+            drop_open = [gripper_open_count] + POSITION_DROP[1:]
+            self.arm.setPosition(drop_open)
+            
+            response.object_detected = True
+            response.status_message = "Moved to goal and released object"
+            self.get_logger().info('Dropped object at goal position')
+        except Exception as exc:
+            response.object_detected = False
+            response.status_message = f"Failed to move to goal: {exc}"
+            self.get_logger().error(f'Move to goal failed: {exc}')
+        
+        return response
+
+    def move_to_square_callback(self, request, response):
         """Move arm to a specific square on the grid."""
         if self.arm is None:
             response.finished_moving = False
@@ -118,7 +139,7 @@ class XArmHardwareNode(Node):
         try:
             # Move to the square position
             position = POSITIONS[square_num]
-            self.arm.setPosition(position, wait=True)
+            self.arm.setPosition(position)
             
             response.finished_moving = True
             response.status_message = f"Moved to square {square_num}"
@@ -126,69 +147,49 @@ class XArmHardwareNode(Node):
         except Exception as exc:
             response.finished_moving = False
             response.status_message = f"Failed to move to square {square_num}: {exc}"
+            self.get_logger().error(f'Move to square {square_num} failed: {exc}')
+        
+        return response
+
+    def object_detect_callback(self, request, response):
         """Close gripper and detect if object was grasped."""
         if self.arm is None:
             response.object_detected = False
             response.message = "Arm not connected"
             return response
         
-        """Cancel operation - turn off all servos."""
-        if self.arm is None:
-            response.is_cancelled = False
-            response.status_message = "Arm not connected"
-            return response
-        
         try:
-            if request.cancel:
-                # Disable all servos
-                self.arm.servoOff()
-                response.is_cancelled = True
-                response.status_message = "All servos turned off"
-                self.get_logger().info('Servos turned off - operation cancelled')
-            else:
-                response.is_cancelled = False
-                response.status_message = "Cancel not requested"
-        except Exception as exc:
-            response.is_cancelled = False
-            response.status_message = f"Failed to cancel: {exc}"
-            self.get_logger().error(f'Cancel failed: {exc}')
-    
-    def move_to_square_callback(self, request, response):
-        # ... perform move to square action ...
-        response.success = True
-        response.status_message = "Moved to square"
-        return response
-
-    def object_detect_callback(self, request, response):
-        """Detect object by attempting to close gripper."""
-        gripper_closed_count = 200  # Define this constant
-        gripper_open_count = 850    # Define this constant
-        
-        try:
-            current_pos = self.arm.getPosition()
-            
-            # Close gripper
-            closed_pos = [gripper_closed_count] + current_pos[1:]
-            self.arm.setPosition(closed_pos, wait=True)
-            
-            import time
-            time.sleep(0.5)
-            
-            final_pos = self.arm.getPosition()
-            gripper_position = final_pos[0]
-            
-            # Allow some tolerance (e.g., within 50 counts of target)
-            if abs(gripper_position - gripper_closed_count) > 50:
-                response.object_detected = True
-                response.message = f"Object detected (gripper at {gripper_position})"
-                self.get_logger().info(f'Object detected at gripper position {gripper_position}')
+            if request.close_gripper:
+                # Get current position
+                current_pos = self.arm.getPosition()
+                
+                # Close gripper (update only gripper servo)
+                closed_pos = [gripper_closed_count] + current_pos[1:]
+                self.arm.setPosition(closed_pos)
+                
+                import time
+                time.sleep(0.5)  # Allow gripper to close
+                
+                # Check if gripper closed completely or stopped on object
+                final_pos = self.arm.getPosition()
+                gripper_position = final_pos[0]
+                
+                # If gripper didn't fully close, an object is present
+                # Allow some tolerance (e.g., within 50 counts of target)
+                if abs(gripper_position - gripper_closed_count) > 50:
+                    response.object_detected = True
+                    response.message = f"Object detected (gripper at {gripper_position})"
+                    self.get_logger().info(f'Object detected at gripper position {gripper_position}')
+                else:
+                    response.object_detected = False
+                    response.message = "No object detected (gripper fully closed)"
+                    # Open gripper again if no object
+                    open_pos = [gripper_open_count] + current_pos[1:]
+                    self.arm.setPosition(open_pos)
+                    self.get_logger().info('No object detected, gripper reopened')
             else:
                 response.object_detected = False
-                response.message = "No object detected (gripper fully closed)"
-                # Reopen gripper if no object
-                open_pos = [gripper_open_count] + current_pos[1:]
-                self.arm.setPosition(open_pos, wait=True)
-                self.get_logger().info('No object detected, gripper reopened')
+                response.message = "Gripper not commanded to close"
                 
         except Exception as exc:
             response.object_detected = False
@@ -199,6 +200,11 @@ class XArmHardwareNode(Node):
 
     def cancel_callback(self, request, response):
         """Cancel operation by disabling servos."""
+        if self.arm is None:
+            response.is_cancelled = False
+            response.status_message = "Arm not connected"
+            return response
+        
         try:
             if request.cancel:
                 self.arm.servoOff()
