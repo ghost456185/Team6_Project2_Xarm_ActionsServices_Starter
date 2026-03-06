@@ -33,7 +33,7 @@ POSITIONS = {
 #  pos: [J1, J2, J3, J4, J5, J6]
 #  pos: [Gripper, Wrist1, Wrist2, Elbow, Shoulder, Base]
 
-POSITION_DROP = [709, 492, 849, 121, 484, 485]
+POSITION_DROP = [709, 492, 849, 121, 534, 485]
 # ========== END ROBOT POSITIONS ==========
 
 SERVO_IDS = [1, 2, 3, 4, 5, 6]
