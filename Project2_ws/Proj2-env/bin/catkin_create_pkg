@@ -1,0 +1,6 @@
+#!/home/laptopuser/Team6_Files/Team6_Project2_Xarm_ActionsServices_Starter/Project2_ws/Proj2-env/bin/python3
+import sys
+from catkin_pkg.cli.create_pkg import main
+if __name__ == '__main__':
+    sys.argv[0] = sys.argv[0].removesuffix('.exe')
+    sys.exit(main())

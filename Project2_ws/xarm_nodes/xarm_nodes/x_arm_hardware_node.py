@@ -10,11 +10,8 @@ from xarm_pickup_interfaces.srv import MoveToGoal
 from xarm_pickup_interfaces.srv import MoveToSquare
 from xarm_pickup_interfaces.srv import ObjectDetect
 from xarm_pickup_interfaces.srv import Cancel
+import xarm
 
-try:
-    import xarm
-except ImportError:
-    xarm = None
 
 # ========== ROBOT POSITIONS ==========
 gripper_closed_count = 709
