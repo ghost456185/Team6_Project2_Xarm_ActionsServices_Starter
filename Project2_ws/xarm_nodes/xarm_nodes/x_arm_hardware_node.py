@@ -144,13 +144,16 @@ class XArmHardwareNode(Node):
             return response
         
         try:
+            import time
             # Always route through home before checking a non-home square.
             if square_num != 0:
                 self.arm.setPosition(_as_servo_targets(POSITIONS[0]), wait=True)
+                time.sleep(0.25)  # Brief pause at home position
 
             # Move to the requested square position
             position = POSITIONS[square_num]
             self.arm.setPosition(_as_servo_targets(position), wait=True)
+            time.sleep(0.25)  # Brief pause at target position
             
             response.finished_moving = True
             response.status_message = f"Moved to square {square_num}"
